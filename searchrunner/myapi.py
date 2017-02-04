@@ -38,13 +38,10 @@ PROVIDERS = [
 class Application(web.Application):
 
     """
-    Application object to preform routing and other configuration settings
+    Application object to manage routing and other configuration settings
     """
 
     def __init__(self):
-        """
-        Initializer for Application object. Takes care of routing and configuration
-        """
         handlers = [
             (r"/flights/search", MyAPI),
         ]
@@ -76,19 +73,16 @@ class MyAPI(tornado.web.RequestHandler):
             None
         """
         # should have some kind of error checking here, but I'm pretty sure tornado takes care of it
-
-        # list comprehension might be faster than map here. Would need to test.
-        # create list of lists of flights by provider
         logging.info("Querying provider APIs")
+
+        # create list of lists of flights by provider
         provider_results = yield map(self.query_api, PROVIDERS)
-        logging.info("Finished querying APIs.")
 
+        logging.info("Finished querying APIs. Merging results.")
         # merge lists of flights by agony
-        logging.info("Merging results.")
         results = self.merge(provider_results)
-        logging.info("Finished merging results.")
 
-        logging.info("Writing to server.")
+        logging.info("Finished mergin results. Writing to server.")
         self.write(results)
         logging.info("Finished writing to server.")
 
@@ -130,8 +124,8 @@ class MyAPI(tornado.web.RequestHandler):
         try:
             merged_results = sorted(itertools.chain(*provider_lists))
         except TypeError:
+            logging.error("TypeError - List passed into MyAPI.merge() was malformed.")
             merged_results = []
-            logging.error("Caught TypeError - List passed into MyAPI.merge() was malformed.")
         return {"results": merged_results}
 
 
@@ -144,8 +138,9 @@ def main():
     formatter = logging.Formatter('%(levelname)s: %(asctime)s - %(message)s')
     console.setFormatter(formatter)
     logging.getLogger('').addHandler(console)
-    # server setup
     logging.info("Started")
+
+    # server setup
     tornado.options.parse_command_line()
     http_server = tornado.httpserver.HTTPServer(Application())
     http_server.listen(options.port)

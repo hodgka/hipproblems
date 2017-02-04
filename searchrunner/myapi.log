@@ -1,0 +1,7 @@
+INFO: 2017-02-04 08:38:53,951 - Started
+INFO: 2017-02-04 08:38:53,952 - Listening on port 8000
+INFO: 2017-02-04 08:38:58,313 - Querying provider APIs
+INFO: 2017-02-04 08:39:00,381 - Finished querying APIs. Merging results.
+INFO: 2017-02-04 08:39:00,385 - Finished mergin results. Writing to server.
+INFO: 2017-02-04 08:39:00,397 - Finished writing to server.
+INFO: 2017-02-04 08:39:00,405 - 200 GET /flights/search (::1) 2092.58ms
