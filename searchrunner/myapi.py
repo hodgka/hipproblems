@@ -12,6 +12,7 @@ Repository can be found at https://github.com/hipmunk/hipproblems.git
 from __future__ import print_function
 from __future__ import absolute_import
 
+import heapq
 import itertools
 import logging
 import tornado
@@ -32,6 +33,21 @@ PROVIDERS = [
     "priceline",
     "travelocity",
     "united",
+    # "testscraper1",
+    # "testscraper2",
+    # "testscraper3",
+    # "testscraper4",
+    # "testscraper5",
+    # "testscraper6",
+    # "testscraper7",
+    # "testscraper8",
+    # "testscraper9",
+    # "testscraper10",
+    # "testscraper11",
+    # "testscraper12",
+    # "testscraper13",
+    # "testscraper14",
+    # "testscraper15",
 ]
 
 
@@ -51,6 +67,7 @@ class Application(web.Application):
         tornado.web.Application.__init__(self, handlers, **settings)
 
 
+
 class MyAPI(tornado.web.RequestHandler):
     """
     Handler for get requests to /flights/search
@@ -60,6 +77,7 @@ class MyAPI(tornado.web.RequestHandler):
         query_api(provider) - get data from specified api
         merge(provider_lists) - merge data from several apis
     """
+
 
     @gen.coroutine
     def get(self):
@@ -72,19 +90,42 @@ class MyAPI(tornado.web.RequestHandler):
         Returns:
             None
         """
-        # should have some kind of error checking here, but I'm pretty sure tornado takes care of it
         logging.info("Querying provider APIs")
+        results = []
+        for provider in PROVIDERS:
+            results = yield self.get_new_results(results, provider)
 
-        # create list of lists of flights by provider
-        provider_results = yield map(self.query_api, PROVIDERS)
+        # results = yield map(self.query_api, PROVIDERS)
+        # results = sorted(itertools.chain(*results), key=lambda x: x["agony"])
 
-        logging.info("Finished querying APIs. Merging results.")
-        # merge lists of flights by agony
-        results = self.merge(provider_results)
-
-        logging.info("Finished mergin results. Writing to server.")
-        self.write(results)
+        logging.info("Finished merging results. Writing to server.")
+        self.write({"results": results})
         logging.info("Finished writing to server.")
+
+    @gen.coroutine
+    def get_new_results(self, old_results, provider):
+        """
+        Query API and merge results
+
+        Args:
+            old_results - list of results that have already been merged
+            provider - string with name of API provider
+        Returns:
+            returns a list of previous results merged with new results in sorted order
+        """
+        new_results = yield self.query_api(provider)
+        merged_results = []
+
+        logging.info("Merging results")
+        # run until shorter list is completely merged into merged_results
+        while old_results and new_results:
+            if old_results[0]["agony"] < new_results[0]["agony"]:
+                merged_results.append(old_results.pop(0))
+            else:
+                merged_results.append(new_results.pop(0))
+
+        logging.info("Returning Results")
+        raise gen.Return(merged_results + old_results + new_results)
 
     @gen.coroutine
     def query_api(self, provider):
@@ -96,7 +137,7 @@ class MyAPI(tornado.web.RequestHandler):
         Returns:
             returns a list of FlightResult objects
         """
-
+        logging.info("Querying api: {}".format(provider))
         scraper_cls = get_scraper(provider)
         if not scraper_cls:
             logging.error("BadYieldError - Tried to access API for bad provider.")
@@ -104,29 +145,11 @@ class MyAPI(tornado.web.RequestHandler):
             yield {
                 "error": "Unkown provider",
             }
+
         # instatiate the scraper and get results
         scraper = scraper_cls()
-        results = yield scraper.run()
-
-        raise gen.Return([r.serialize() for r in results])
-
-    def merge(self, provider_lists):
-        """
-        Flattens a list of sorted lists into a sorted list
-
-        Args:
-            List of lists of FlightResult objects
-        Returns:
-            A list of FlightResult objects sorted by "agony"
-        """
-
-        # concatenates the sublists, then sorts the new list
-        try:
-            merged_results = sorted(itertools.chain(*provider_lists))
-        except TypeError:
-            logging.error("TypeError - List passed into MyAPI.merge() was malformed.")
-            merged_results = []
-        return {"results": merged_results}
+        query_results = yield scraper.run()
+        raise gen.Return([r.serialize() for r in query_results])
 
 
 def main():
