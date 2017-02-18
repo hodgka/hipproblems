@@ -15,12 +15,13 @@ from __future__ import absolute_import
 import heapq
 import itertools
 import logging
+
 import tornado
 from tornado import gen
-from tornado import web
 from tornado import httpserver
 from tornado.options import define
 from tornado.options import options
+from tornado import web
 
 from searchrunner.scrapers import get_scraper
 
@@ -67,7 +68,6 @@ class Application(web.Application):
         tornado.web.Application.__init__(self, handlers, **settings)
 
 
-
 class MyAPI(tornado.web.RequestHandler):
     """
     Handler for get requests to /flights/search
@@ -78,35 +78,72 @@ class MyAPI(tornado.web.RequestHandler):
         merge(provider_lists) - merge data from several apis
     """
 
-
     @gen.coroutine
     def get(self):
         """
-        Makes async calls to query each of the provider APIs, stitch them together
-        and write them to the server.
+        Makes calls to query each of the provider APIs using coroutines then merges and writes to server
 
         Args:
             None
         Returns:
             None
         """
-        logging.info("Querying provider APIs")
-        results = []
-        for provider in PROVIDERS:
-            results = yield self.get_new_results(results, provider)
+        logging.info("Querying provider APIs.")
 
-        # results = yield map(self.query_api, PROVIDERS)
-        # results = sorted(itertools.chain(*results), key=lambda x: x["agony"])
+        # have to wait for all futures to resolve, but merging is simpler
+        results = yield map(self.query_api, PROVIDERS)
 
-        logging.info("Finished merging results. Writing to server.")
-        self.write({"results": results})
+        logging.info("Merging results.")
+
+        # similar to using sorted(itertools.chain(*lists))
+        # see https://docs.python.org/2/library/heapq.html
+        results = list(heapq.merge(*results))
+
+        # old_implementation
+        # results = sorted(itertools.chain(*results))
+
+        # very slow alternate implementation that merges 2 lists at a time
+        # rather than using a priority queue / binary heap
+        # results = []
+        # for provider in PROVIDERS:
+        #     results = yield self.get_new_results(results, provider)
+
+        logging.info("Writing to server.")
+        self.write({
+            "results": results,
+        })
         logging.info("Finished writing to server.")
+
+    @gen.coroutine
+    def query_api(self, provider):
+        """
+        Create the appropriate scraper object and get sorted results
+
+        Args:
+            provider - a string with the name of the API provider
+        Returns:
+            returns a list of FlightResult objects
+        """
+        logging.info("Querying api: {}".format(provider))
+
+        scraper_cls = get_scraper(provider)
+        if not scraper_cls:
+            logging.error("BadYieldError - Tried to access API for bad provider.")
+            self.set_status(400)
+            yield {
+                "error": "Unkown provider",
+            }
+            return
+
+        # instatiate the scraper and get results
+        scraper = scraper_cls()
+        query_results = yield scraper.run()
+        raise gen.Return([r.serialize() for r in query_results])
 
     @gen.coroutine
     def get_new_results(self, old_results, provider):
         """
         Query API and merge results
-
         Args:
             old_results - list of results that have already been merged
             provider - string with name of API provider
@@ -127,33 +164,10 @@ class MyAPI(tornado.web.RequestHandler):
         logging.info("Returning Results")
         raise gen.Return(merged_results + old_results + new_results)
 
-    @gen.coroutine
-    def query_api(self, provider):
-        """
-        Create the appropriate scraper object and get sorted results
 
-        Args:
-            provider - a string with the name of the API provider
-        Returns:
-            returns a list of FlightResult objects
-        """
-        logging.info("Querying api: {}".format(provider))
-        scraper_cls = get_scraper(provider)
-        if not scraper_cls:
-            logging.error("BadYieldError - Tried to access API for bad provider.")
-            self.set_status(400)
-            yield {
-                "error": "Unkown provider",
-            }
-
-        # instatiate the scraper and get results
-        scraper = scraper_cls()
-        query_results = yield scraper.run()
-        raise gen.Return([r.serialize() for r in query_results])
-
-
-def main():
+if __name__ == "__main__":
     # logging
+    # removing logging improves speed a little bit
     logging.basicConfig(filename="myapi.log", format='%(levelname)s: %(asctime)s - %(message)s',
                         level=logging.INFO)
     console = logging.StreamHandler()
@@ -165,11 +179,7 @@ def main():
 
     # server setup
     tornado.options.parse_command_line()
-    http_server = tornado.httpserver.HTTPServer(Application())
+    http_server = httpserver.HTTPServer(Application())
     http_server.listen(options.port)
     logging.info("Listening on port {}".format(options.port))
     tornado.ioloop.IOLoop.current().start()
-
-
-if __name__ == "__main__":
-    main()
